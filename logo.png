@@ -1,0 +1,323 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { getProfiles, getProjects, getPosts, getCamps, promoteUser, deleteProject, deletePost, deleteCamp } from '@/lib/supabase';
+import { useAuth } from '@/components/AuthProvider';
+import { useToast } from '@/components/Toast';
+import { Avatar, RoleTag, StatusBadge, SDGTag } from '@/components/UI';
+import { canAdmin, ROLE_HIERARCHY } from '@/lib/types';
+import type { Profile, Project, Post, Camp, UserRole } from '@/lib/types';
+
+type Tab = 'users' | 'projects' | 'posts' | 'camps';
+
+export default function AdminPage() {
+  const { profile, loading } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
+  const [tab, setTab] = useState<Tab>('users');
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [camps, setCamps] = useState<Camp[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !canAdmin(profile)) {
+      router.push('/');
+    }
+  }, [loading, profile]);
+
+  useEffect(() => {
+    if (canAdmin(profile)) {
+      Promise.all([getProfiles(), getProjects(), getPosts(), getCamps()]).then(([u, p, po, c]) => {
+        setUsers(u);
+        setProjects(p);
+        setPosts(po);
+        setCamps(c);
+        setLoaded(true);
+      });
+    }
+  }, [profile]);
+
+  async function handlePromote(userId: string, currentRole: UserRole) {
+    const idx = ROLE_HIERARCHY.indexOf(currentRole);
+    if (idx >= ROLE_HIERARCHY.length - 1) return;
+    const newRole = ROLE_HIERARCHY[idx + 1];
+    const { error } = await promoteUser(userId, newRole);
+    if (error) {
+      toast.show('Failed: ' + error.message, 'error');
+    } else {
+      toast.show(`Promoted to ${newRole}`);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    }
+  }
+
+  async function handleDemote(userId: string, currentRole: UserRole) {
+    const idx = ROLE_HIERARCHY.indexOf(currentRole);
+    if (idx <= 0) return;
+    const newRole = ROLE_HIERARCHY[idx - 1];
+    const { error } = await promoteUser(userId, newRole);
+    if (error) {
+      toast.show('Failed: ' + error.message, 'error');
+    } else {
+      toast.show(`Demoted to ${newRole}`);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    }
+  }
+
+  async function handleDeleteProject(id: string) {
+    if (!confirm('Delete this project?')) return;
+    await deleteProject(id);
+    setProjects(prev => prev.filter(p => p.id !== id));
+    toast.show('Project deleted');
+  }
+
+  async function handleDeletePost(id: string) {
+    if (!confirm('Delete this post?')) return;
+    await deletePost(id);
+    setPosts(prev => prev.filter(p => p.id !== id));
+    toast.show('Post deleted');
+  }
+
+  async function handleDeleteCamp(id: string) {
+    if (!confirm('Delete this camp?')) return;
+    await deleteCamp(id);
+    setCamps(prev => prev.filter(c => c.id !== id));
+    toast.show('Camp deleted');
+  }
+
+  if (loading || !canAdmin(profile)) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <svg className="mx-auto text-text-tertiary mb-3" width="24" height="24" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="3" y="6" width="8" height="6" rx="1"/><path d="M5 6V4a2 2 0 014 0v2"/></svg>
+          <h2 className="text-lg font-semibold">Access Restricted</h2>
+          <p className="text-sm text-text-secondary mt-1">Admin privileges required.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded) {
+    return <div className="flex items-center justify-center min-h-[50vh]"><div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>;
+  }
+
+  const tabs: { id: Tab; label: string; count: number }[] = [
+    { id: 'users', label: 'Users', count: users.length },
+    { id: 'projects', label: 'Projects', count: projects.length },
+    { id: 'posts', label: 'Posts', count: posts.length },
+    { id: 'camps', label: 'Camps', count: camps.length },
+  ];
+
+  return (
+    <div className="animate-in">
+      <div className="flex min-h-[calc(100vh-60px)]">
+        {/* Sidebar */}
+        <div className="hidden md:block w-[220px] border-r border-border py-4 shrink-0">
+          <div className="px-5 pb-3 text-[12px] font-semibold uppercase tracking-wider text-text-tertiary">Admin</div>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`w-full text-left px-5 py-2 text-[13.5px] transition-colors flex items-center justify-between ${
+                tab === t.id ? 'text-text-primary font-medium bg-[#fafafa]' : 'text-text-secondary hover:text-text-primary hover:bg-gray-50'
+              }`}
+            >
+              {t.label}
+              <span className="text-[11px] text-text-tertiary">{t.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Mobile tab bar */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border z-40 flex">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex-1 py-3 text-[12px] font-medium text-center ${tab === t.id ? 'text-text-primary bg-gray-50' : 'text-text-tertiary'}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 p-6 md:p-8 pb-24 md:pb-8">
+
+          {/* ── USERS ── */}
+          {tab === 'users' && (
+            <div>
+              <h2 className="text-[20px] font-semibold mb-1">Manage Users</h2>
+              <p className="text-[14px] text-text-secondary mb-6">{users.length} registered members</p>
+              <div className="bg-white border border-border rounded-xl overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Member</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Role</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Email</th>
+                      <th className="text-right text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(u => {
+                      const roleIdx = ROLE_HIERARCHY.indexOf(u.role);
+                      return (
+                        <tr key={u.id} className="border-b border-border-light last:border-b-0 hover:bg-[#fafafa]">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <Avatar name={u.name} size="sm" />
+                              <span className="text-[14px] font-medium">{u.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3"><RoleTag role={u.role} /></td>
+                          <td className="px-4 py-3 text-[13px] text-text-secondary">{u.email}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex gap-1 justify-end">
+                              {roleIdx > 0 && (
+                                <button
+                                  onClick={() => handleDemote(u.id, u.role)}
+                                  className="px-2 py-1 text-[12px] text-text-secondary hover:bg-gray-100 rounded transition-colors"
+                                  title="Demote"
+                                >
+                                  ↓
+                                </button>
+                              )}
+                              {roleIdx < ROLE_HIERARCHY.length - 1 && (
+                                <button
+                                  onClick={() => handlePromote(u.id, u.role)}
+                                  className="px-2.5 py-1 text-[12px] font-medium border border-border rounded hover:bg-gray-50 transition-colors"
+                                  title="Promote"
+                                >
+                                  ↑ Promote
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── PROJECTS ── */}
+          {tab === 'projects' && (
+            <div>
+              <h2 className="text-[20px] font-semibold mb-1">Projects</h2>
+              <p className="text-[14px] text-text-secondary mb-6">{projects.length} total projects</p>
+              <div className="bg-white border border-border rounded-xl overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Project</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Status</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Creator</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">SDGs</th>
+                      <th className="text-right text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map(p => (
+                      <tr key={p.id} className="border-b border-border-light last:border-b-0 hover:bg-[#fafafa]">
+                        <td className="px-4 py-3 font-medium text-[14px]">{p.title}</td>
+                        <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">{p.creator?.name || '—'}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1 flex-wrap">{(p.sdgs || []).map(s => <SDGTag key={s.id} sdg={s} small />)}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteProject(p.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M3 4h8l-.5 8H3.5z"/><line x1="1" y1="4" x2="13" y2="4"/><path d="M5 4V2.5h4V4"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── POSTS ── */}
+          {tab === 'posts' && (
+            <div>
+              <h2 className="text-[20px] font-semibold mb-1">Magazine Posts</h2>
+              <p className="text-[14px] text-text-secondary mb-6">{posts.length} published posts</p>
+              <div className="bg-white border border-border rounded-xl overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Title</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Tag</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Author</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Date</th>
+                      <th className="text-right text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {posts.map(p => (
+                      <tr key={p.id} className="border-b border-border-light last:border-b-0 hover:bg-[#fafafa]">
+                        <td className="px-4 py-3 font-medium text-[14px]">{p.title}</td>
+                        <td className="px-4 py-3 text-[12px] text-text-tertiary uppercase font-semibold tracking-wider">{p.tag}</td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">{p.author?.name || '—'}</td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">
+                          {new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeletePost(p.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M3 4h8l-.5 8H3.5z"/><line x1="1" y1="4" x2="13" y2="4"/><path d="M5 4V2.5h4V4"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── CAMPS ── */}
+          {tab === 'camps' && (
+            <div>
+              <h2 className="text-[20px] font-semibold mb-1">Camps & Events</h2>
+              <p className="text-[14px] text-text-secondary mb-6">{camps.length} scheduled events</p>
+              <div className="bg-white border border-border rounded-xl overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Camp</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Date</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Location</th>
+                      <th className="text-left text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Spots</th>
+                      <th className="text-right text-[11.5px] font-semibold uppercase tracking-wider text-text-tertiary px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {camps.map(c => (
+                      <tr key={c.id} className="border-b border-border-light last:border-b-0 hover:bg-[#fafafa]">
+                        <td className="px-4 py-3 font-medium text-[14px]">{c.title}</td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">{c.date_range}</td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">{c.location}</td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary">{c.registered_count}/{c.total_spots}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteCamp(c.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M3 4h8l-.5 8H3.5z"/><line x1="1" y1="4" x2="13" y2="4"/><path d="M5 4V2.5h4V4"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
