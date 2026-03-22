@@ -1,33 +1,30 @@
-'use client';
-
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-
-interface ToastCtx {
-  show: (msg: string, type?: 'success' | 'error') => void;
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      fontFamily: {
+        body: ['"DM Sans"', 'system-ui', 'sans-serif'],
+        display: ['"Instrument Serif"', 'Georgia', 'serif'],
+      },
+      colors: {
+        border: '#e8e8e8',
+        'border-light': '#f0f0f0',
+        accent: '#1a2332',
+        'accent-light': '#f4f6f8',
+        'text-primary': '#111111',
+        'text-secondary': '#666666',
+        'text-tertiary': '#999999',
+      },
+      boxShadow: {
+        'subtle': '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+        'card': '0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.03)',
+        'elevated': '0 10px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04)',
+      },
+    },
+  },
+  plugins: [],
 }
-
-const ToastContext = createContext<ToastCtx>({ show: () => {} });
-
-export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
-
-  const show = useCallback((msg: string, type: string = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
-
-  return (
-    <ToastContext.Provider value={{ show }}>
-      {children}
-      {toast && (
-        <div className={`toast fixed top-20 right-6 z-[300] px-5 py-3 rounded-lg text-sm font-medium shadow-elevated ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-accent text-white'
-        }`}>
-          {toast.msg}
-        </div>
-      )}
-    </ToastContext.Provider>
-  );
-}
-
-export const useToast = () => useContext(ToastContext);
